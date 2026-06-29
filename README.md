@@ -98,17 +98,76 @@ Interactive docs at `http://localhost:8002/docs` (Swagger UI).
 
 ---
 
+## Jupyter Notebook
+
+`notebooks/singapore_housing_analysis.ipynb` is a standalone EDA notebook that fetches directly from the data.gov.sg API. No backend or Docker required.
+
+```bash
+pip install pandas requests matplotlib seaborn scipy scikit-learn
+jupyter notebook notebooks/singapore_housing_analysis.ipynb
+```
+
+The notebook covers five analyses:
+
+| Analysis | Method |
+|---|---|
+| Price trend 2020 to present | Monthly median + Mann-Whitney U test on pre/post Sep 2022 cooling measure |
+| Town-level premium | Median price per town, top-5 vs bottom-5 premium ratio |
+| Storey premium | Price per sqm by floor band, Pearson correlation (storey vs price) |
+| Flat type distribution | Boxplots with IQR, quartile summary |
+| OLS price prediction | LinearRegression on floor area + storey + town + flat type; R2, MAE, residual plot |
+
+---
+
 ## SQL Analytics
 
-`sql/analytics.sql` contains seven production-quality queries demonstrating advanced SQL patterns against the transactions table:
+`sql/analytics.sql` contains seven queries demonstrating window functions and CTE chains against the transactions table. Two examples:
 
-1. Month-over-month price delta with LAG window function
-2. Town ranking with RANK, DENSE_RANK, PERCENT_RANK, NTILE(4)
-3. Rolling 3-month average price with ROWS BETWEEN frame
-4. Storey premium analysis with SUM() OVER and FIRST_VALUE
-5. Year-on-year change by flat type (CTE chain + LAG)
-6. Price distribution quartiles per town with NTILE
-7. Town divergence from long-run average (CTE chain with overvaluation signal)
+**Town ranking -- RANK, DENSE_RANK, PERCENT_RANK, NTILE in one query:**
+
+```sql
+WITH town_stats AS (
+    SELECT
+        town,
+        ROUND(AVG(resale_price), 0)  AS avg_price,
+        COUNT(*)                      AS volume
+    FROM transactions
+    GROUP BY town
+)
+SELECT
+    town,
+    avg_price,
+    RANK()         OVER (ORDER BY avg_price DESC)  AS price_rank,
+    DENSE_RANK()   OVER (ORDER BY avg_price DESC)  AS dense_rank,
+    ROUND(PERCENT_RANK() OVER (ORDER BY avg_price), 4) AS percentile,
+    NTILE(4)       OVER (ORDER BY avg_price DESC)  AS price_quartile
+FROM town_stats
+ORDER BY avg_price DESC;
+```
+
+**Storey premium -- FIRST_VALUE to compute premium vs ground floor:**
+
+```sql
+WITH storey_stats AS (
+    SELECT
+        storey_range,
+        ROUND(AVG(resale_price), 0) AS avg_price,
+        COUNT(*)                     AS volume
+    FROM transactions
+    GROUP BY storey_range
+)
+SELECT
+    storey_range,
+    avg_price,
+    avg_price - FIRST_VALUE(avg_price) OVER (
+        ORDER BY avg_price
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS premium_vs_lowest
+FROM storey_stats
+ORDER BY avg_price;
+```
+
+Full query list: (1) MoM price delta with LAG, (2) town ranking with 4 window functions, (3) rolling 3-month average with ROWS BETWEEN, (4) storey premium with FIRST_VALUE, (5) YoY flat type change with CTE + LAG, (6) price quartiles per town with NTILE, (7) overvaluation signal with divergence CTE chain.
 
 ---
 
@@ -130,6 +189,8 @@ hdb-intelligence/
 │   └── Dockerfile
 ├── frontend/
 │   └── index.html               # Single-page dashboard (Chart.js, vanilla JS)
+├── notebooks/
+│   └── singapore_housing_analysis.ipynb  # Standalone EDA notebook (no backend needed)
 ├── sql/
 │   └── analytics.sql            # Window function and CTE analytics queries
 ├── docker-compose.yml
