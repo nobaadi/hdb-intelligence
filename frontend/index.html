@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HDB Resale Intelligence</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3e;
+      --accent: #4f8ef7;
+      --accent2: #34d399;
+      --text: #e2e8f0;
+      --muted: #8892a4;
+      --danger: #f87171;
+    }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; min-height: 100vh; }
+    header { padding: 20px 32px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 18px; font-weight: 600; color: var(--text); }
+    header p { font-size: 13px; color: var(--muted); }
+    .source-badge { margin-left: auto; font-size: 11px; padding: 4px 10px; border-radius: 4px; background: #1e2a1e; color: var(--accent2); border: 1px solid #2a3e2a; }
+
+    nav { display: flex; gap: 4px; padding: 16px 32px 0; border-bottom: 1px solid var(--border); }
+    nav button { padding: 8px 18px; border: none; background: none; color: var(--muted); font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s; }
+    nav button:hover { color: var(--text); }
+    nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    main { padding: 28px 32px; }
+    .tab { display: none; }
+    .tab.active { display: block; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; }
+    .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+    .kpi .value { font-size: 26px; font-weight: 700; color: var(--accent); }
+    .kpi .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    .card h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 16px; }
+    canvas { max-height: 340px; }
+
+    .filters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; align-items: flex-end; }
+    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-group label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    select, input[type=text], input[type=number] {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      padding: 7px 10px; border-radius: 6px; font-size: 13px; min-width: 140px; outline: none;
+    }
+    select:focus, input:focus { border-color: var(--accent); }
+    button.btn { padding: 8px 18px; background: var(--accent); color: white; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    button.btn:hover { opacity: .88; }
+    button.btn-ghost { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 12px; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(79,142,247,.05); }
+    .price { color: var(--accent2); font-weight: 600; }
+    .pagination { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+    .page-info { font-size: 12px; color: var(--muted); margin: 0 8px; }
+
+    .loading { text-align: center; padding: 40px; color: var(--muted); }
+    .error { padding: 12px 16px; background: #2a1a1a; border: 1px solid #4a2020; border-radius: 6px; color: var(--danger); font-size: 13px; margin-bottom: 16px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } main { padding: 20px 16px; } nav { padding: 12px 16px 0; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>HDB Resale Intelligence</h1>
+    <p>Singapore public housing resale market analytics</p>
+  </div>
+  <span class="source-badge" id="source-badge">data.gov.sg</span>
+</header>
+
+<nav>
+  <button class="active" onclick="switchTab('overview', this)">Overview</button>
+  <button onclick="switchTab('bytown', this)">Price by Town</button>
+  <button onclick="switchTab('trend', this)">Price Trend</button>
+  <button onclick="switchTab('explorer', this)">Transaction Explorer</button>
+</nav>
+
+<main>
+
+  <!-- OVERVIEW TAB -->
+  <div id="tab-overview" class="tab active">
+    <div id="overview-error" class="error" style="display:none"></div>
+    <div id="kpi-grid" class="kpi-grid">
+      <div class="loading">Loading...</div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <h3>Year-on-Year Average Price</h3>
+        <canvas id="yoy-chart"></canvas>
+      </div>
+      <div class="card">
+        <h3>Transactions by Flat Type</h3>
+        <canvas id="flattype-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- BY TOWN TAB -->
+  <div id="tab-bytown" class="tab">
+    <div id="bytown-error" class="error" style="display:none"></div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>Flat Type</label>
+        <select id="bytown-flattype" onchange="loadByTown()">
+          <option value="">All Types</option>
+        </select>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Average Resale Price by Town (SGD)</h3>
+      <canvas id="town-chart" style="max-height:480px"></canvas>
+    </div>
+  </div>
+
+  <!-- TREND TAB -->
+  <div id="tab-trend" class="tab">
+    <div id="trend-error" class="error" style="display:none"></div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>Town</label>
+        <select id="trend-town" onchange="loadTrend()">
+          <option value="">All Towns</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Flat Type</label>
+        <select id="trend-flattype" onchange="loadTrend()">
+          <option value="">All Types</option>
+        </select>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Monthly Average Price Trend</h3>
+      <canvas id="trend-chart"></canvas>
+    </div>
+    <div class="card">
+      <h3>Monthly Transaction Volume</h3>
+      <canvas id="volume-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- TRANSACTION EXPLORER TAB -->
+  <div id="tab-explorer" class="tab">
+    <div id="explorer-error" class="error" style="display:none"></div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>Town</label>
+        <select id="exp-town">
+          <option value="">All Towns</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Flat Type</label>
+        <select id="exp-flattype">
+          <option value="">All Types</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>From Month</label>
+        <input type="text" id="exp-month-from" placeholder="2022-01" style="min-width:120px" />
+      </div>
+      <div class="filter-group">
+        <label>To Month</label>
+        <input type="text" id="exp-month-to" placeholder="2024-12" style="min-width:120px" />
+      </div>
+      <div class="filter-group">
+        <label>Min Price (SGD)</label>
+        <input type="number" id="exp-min-price" placeholder="200000" style="min-width:130px" />
+      </div>
+      <div class="filter-group">
+        <label>Max Price (SGD)</label>
+        <input type="number" id="exp-max-price" placeholder="1500000" style="min-width:130px" />
+      </div>
+      <div class="filter-group" style="justify-content:flex-end">
+        <label>&nbsp;</label>
+        <button class="btn" onclick="searchTransactions()">Search</button>
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+      <div id="explorer-table"><div class="loading">Enter filters and click Search.</div></div>
+      <div class="pagination" id="pagination" style="display:none">
+        <button class="btn btn-ghost" id="prev-btn" onclick="changePage(-1)">Prev</button>
+        <span class="page-info" id="page-info"></span>
+        <button class="btn btn-ghost" id="next-btn" onclick="changePage(1)">Next</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  const API = 'http://localhost:8002';
+  let charts = {};
+  let explorerState = { page: 1, total: 0, page_size: 50 };
+
+  // ---- helpers ----
+  async function get(path) {
+    const r = await fetch(API + path);
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+  }
+  function fmt(n) { return n == null ? '-' : Number(n).toLocaleString('en-SG'); }
+  function fmtSGD(n) { return n == null ? '-' : 'S$' + Number(n).toLocaleString('en-SG', {maximumFractionDigits: 0}); }
+  function showError(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = 'block'; }
+  function clearError(id) { document.getElementById(id).style.display = 'none'; }
+  function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+  function switchTab(name, btn) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    btn.classList.add('active');
+    if (name === 'bytown') loadByTown();
+    if (name === 'trend') loadTrend();
+    if (name === 'explorer') prepareExplorer();
+  }
+
+  // ---- Overview ----
+  async function loadOverview() {
+    clearError('overview-error');
+    try {
+      const [summary, yoy, byFlatType] = await Promise.all([
+        get('/api/analytics/summary'),
+        get('/api/analytics/yoy'),
+        get('/api/analytics/by-flat-type'),
+      ]);
+
+      document.getElementById('source-badge').textContent =
+        summary.total_transactions > 10000 ? 'data.gov.sg (live)' : 'synthetic data';
+
+      document.getElementById('kpi-grid').innerHTML = `
+        <div class="kpi"><div class="label">Total Transactions</div><div class="value">${fmt(summary.total_transactions)}</div><div class="sub">${summary.data_from} to ${summary.data_to}</div></div>
+        <div class="kpi"><div class="label">Avg Resale Price</div><div class="value">${fmtSGD(summary.avg_price)}</div><div class="sub">across all flat types</div></div>
+        <div class="kpi"><div class="label">Avg Price / sqm</div><div class="value">${fmtSGD(summary.avg_price_per_sqm)}</div><div class="sub">per square metre</div></div>
+        <div class="kpi"><div class="label">Busiest Town</div><div class="value" style="font-size:17px">${summary.busiest_town}</div><div class="sub">${fmt(summary.busiest_town_count)} transactions</div></div>
+      `;
+
+      // YoY line chart
+      destroyChart('yoy-chart');
+      charts['yoy-chart'] = new Chart(document.getElementById('yoy-chart'), {
+        type: 'line',
+        data: {
+          labels: yoy.map(r => r.year),
+          datasets: [{
+            label: 'Avg Price (SGD)',
+            data: yoy.map(r => r.avg_price),
+            borderColor: '#4f8ef7',
+            backgroundColor: 'rgba(79,142,247,.1)',
+            fill: true,
+            tension: .3,
+            pointRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: '#2a2d3e' }, ticks: { color: '#8892a4' } },
+            y: { grid: { color: '#2a2d3e' }, ticks: { color: '#8892a4', callback: v => 'S$' + (v/1000).toFixed(0) + 'k' } },
+          },
+        },
+      });
+
+      // Flat type doughnut
+      destroyChart('flattype-chart');
+      charts['flattype-chart'] = new Chart(document.getElementById('flattype-chart'), {
+        type: 'doughnut',
+        data: {
+          labels: byFlatType.map(r => r.flat_type),
+          datasets: [{
+            data: byFlatType.map(r => r.volume),
+            backgroundColor: ['#4f8ef7','#34d399','#f59e0b','#f87171','#a78bfa'],
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'right', labels: { color: '#8892a4', font: { size: 12 } } },
+          },
+        },
+      });
+
+    } catch (e) {
+      showError('overview-error', 'Could not load overview: ' + e.message);
+      document.getElementById('kpi-grid').innerHTML = '';
+    }
+  }
+
+  // ---- By Town ----
+  async function loadByTown() {
+    clearError('bytown-error');
+    const ft = document.getElementById('bytown-flattype').value;
+    const qs = ft ? `?flat_type=${encodeURIComponent(ft)}` : '';
+    try {
+      const data = await get('/api/analytics/by-town' + qs);
+      destroyChart('town-chart');
+      charts['town-chart'] = new Chart(document.getElementById('town-chart'), {
+        type: 'bar',
+        data: {
+          labels: data.map(r => r.town),
+          datasets: [{
+            label: 'Avg Resale Price',
+            data: data.map(r => r.avg_price),
+            backgroundColor: data.map((_, i) => i < 5 ? '#4f8ef7' : '#2a3a5e'),
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: '#2a2d3e' }, ticks: { color: '#8892a4', callback: v => 'S$' + (v/1000).toFixed(0) + 'k' } },
+            y: { grid: { color: '#2a2d3e' }, ticks: { color: '#e2e8f0', font: { size: 11 } } },
+          },
+        },
+      });
+    } catch (e) {
+      showError('bytown-error', 'Could not load town data: ' + e.message);
+    }
+  }
+
+  // ---- Price Trend ----
+  async function loadTrend() {
+    clearError('trend-error');
+    const town = document.getElementById('trend-town').value;
+    const ft = document.getElementById('trend-flattype').value;
+    const params = new URLSearchParams();
+    if (town) params.set('town', town);
+    if (ft) params.set('flat_type', ft);
+    const qs = params.toString() ? '?' + params : '';
+    try {
+      const data = await get('/api/analytics/trend' + qs);
+
+      destroyChart('trend-chart');
+      charts['trend-chart'] = new Chart(document.getElementById('trend-chart'), {
+        type: 'line',
+        data: {
+          labels: data.map(r => r.month),
+          datasets: [{
+            label: 'Avg Price',
+            data: data.map(r => r.avg_price),
+            borderColor: '#4f8ef7',
+            backgroundColor: 'rgba(79,142,247,.08)',
+            fill: true,
+            tension: .3,
+            pointRadius: 2,
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: '#2a2d3e' }, ticks: { color: '#8892a4', maxTicksLimit: 12 } },
+            y: { grid: { color: '#2a2d3e' }, ticks: { color: '#8892a4', callback: v => 'S$' + (v/1000).toFixed(0) + 'k' } },
+          },
+        },
+      });
+
+      destroyChart('volume-chart');
+      charts['volume-chart'] = new Chart(document.getElementById('volume-chart'), {
+        type: 'bar',
+        data: {
+          labels: data.map(r => r.month),
+          datasets: [{
+            label: 'Transactions',
+            data: data.map(r => r.volume),
+            backgroundColor: 'rgba(52,211,153,.5)',
+            borderRadius: 2,
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: '#2a2d3e' }, ticks: { color: '#8892a4', maxTicksLimit: 12 } },
+            y: { grid: { color: '#2a2d3e' }, ticks: { color: '#8892a4' } },
+          },
+        },
+      });
+    } catch (e) {
+      showError('trend-error', 'Could not load trend data: ' + e.message);
+    }
+  }
+
+  // ---- Transaction Explorer ----
+  async function prepareExplorer() {
+    // Filters already populated from loadFilters()
+  }
+
+  async function searchTransactions(resetPage = true) {
+    if (resetPage) explorerState.page = 1;
+    clearError('explorer-error');
+    const params = new URLSearchParams();
+    const town = document.getElementById('exp-town').value;
+    const ft = document.getElementById('exp-flattype').value;
+    const mf = document.getElementById('exp-month-from').value.trim();
+    const mt = document.getElementById('exp-month-to').value.trim();
+    const minP = document.getElementById('exp-min-price').value;
+    const maxP = document.getElementById('exp-max-price').value;
+    if (town) params.set('town', town);
+    if (ft) params.set('flat_type', ft);
+    if (mf) params.set('month_from', mf);
+    if (mt) params.set('month_to', mt);
+    if (minP) params.set('min_price', minP);
+    if (maxP) params.set('max_price', maxP);
+    params.set('page', explorerState.page);
+    params.set('page_size', explorerState.page_size);
+
+    try {
+      const result = await get('/api/transactions/?' + params);
+      explorerState.total = result.total;
+
+      if (!result.data.length) {
+        document.getElementById('explorer-table').innerHTML = '<div class="loading">No transactions match the filters.</div>';
+        document.getElementById('pagination').style.display = 'none';
+        return;
+      }
+
+      const rows = result.data.map(r => `
+        <tr>
+          <td>${r.month}</td>
+          <td>${r.town}</td>
+          <td>${r.flat_type}</td>
+          <td>${r.storey_range || '-'}</td>
+          <td>${r.floor_area_sqm ? r.floor_area_sqm + ' sqm' : '-'}</td>
+          <td class="price">${fmtSGD(r.resale_price)}</td>
+          <td class="price">${r.price_per_sqm ? fmtSGD(r.price_per_sqm) + '/sqm' : '-'}</td>
+          <td>${r.remaining_lease || '-'}</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('explorer-table').innerHTML = `
+        <table>
+          <thead><tr><th>Month</th><th>Town</th><th>Flat Type</th><th>Storey</th><th>Area</th><th>Price</th><th>Price/sqm</th><th>Lease Left</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+
+      const totalPages = Math.ceil(result.total / explorerState.page_size);
+      document.getElementById('pagination').style.display = 'flex';
+      document.getElementById('page-info').textContent =
+        `Page ${explorerState.page} of ${totalPages} (${fmt(result.total)} results)`;
+      document.getElementById('prev-btn').disabled = explorerState.page <= 1;
+      document.getElementById('next-btn').disabled = explorerState.page >= totalPages;
+
+    } catch (e) {
+      showError('explorer-error', 'Could not load transactions: ' + e.message);
+    }
+  }
+
+  function changePage(delta) {
+    explorerState.page += delta;
+    searchTransactions(false);
+  }
+
+  // ---- Populate filter dropdowns ----
+  async function loadFilters() {
+    try {
+      const [towns, flatTypes] = await Promise.all([
+        get('/api/towns/'),
+        get('/api/towns/flat-types'),
+      ]);
+      const townOpts = towns.map(t => `<option value="${t}">${t}</option>`).join('');
+      const ftOpts = flatTypes.map(f => `<option value="${f}">${f}</option>`).join('');
+
+      ['bytown-flattype', 'trend-flattype', 'exp-flattype'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.insertAdjacentHTML('beforeend', ftOpts);
+      });
+      ['trend-town', 'exp-town'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.insertAdjacentHTML('beforeend', townOpts);
+      });
+    } catch (e) {
+      // Filters won't be populated, user can still type values
+    }
+  }
+
+  // ---- Init ----
+  loadFilters();
+  loadOverview();
+</script>
+</body>
+</html>

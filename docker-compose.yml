@@ -1,0 +1,12 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8002:8002"
+    volumes:
+      - hdb_data:/data
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/hdb.db
+
+volumes:
+  hdb_data:
