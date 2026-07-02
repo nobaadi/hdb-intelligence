@@ -77,6 +77,7 @@ Open `frontend/index.html` directly in a browser. No build step required.
 | GET | `/api/analytics/by-flat-type` | Avg price by flat type; param: `town` |
 | GET | `/api/analytics/storey-premium` | Avg price per storey band |
 | GET | `/api/analytics/yoy` | Year-on-year avg price and YoY change % |
+| GET | `/api/analytics/data-profile` | Data quality summary: null counts, price percentiles (p25/median/p75/p95), date coverage, completeness % |
 | GET | `/api/transactions/` | Paginated transaction list; params: `town`, `flat_type`, `month_from`, `month_to`, `min_price`, `max_price`, `page`, `page_size` |
 | GET | `/api/towns/` | Distinct town list |
 | GET | `/api/towns/flat-types` | Distinct flat type list |

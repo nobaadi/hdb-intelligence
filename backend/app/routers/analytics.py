@@ -137,3 +137,58 @@ async def year_on_year(db: AsyncSession = Depends(get_db)):
     if rows:
         rows[0]["yoy_change_pct"] = None
     return rows
+
+
+@router.get("/data-profile")
+async def get_data_profile(db: AsyncSession = Depends(get_db)):
+    """
+    Data quality and distribution summary for the loaded dataset.
+
+    Returns null counts, price percentile distribution, date coverage,
+    and cardinality stats. Useful for verifying ETL completeness.
+    """
+    r = await db.execute(text("""
+        SELECT
+            COUNT(*)                                                        AS total_records,
+            SUM(CASE WHEN resale_price IS NULL THEN 1 ELSE 0 END)          AS null_price_count,
+            SUM(CASE WHEN floor_area_sqm IS NULL THEN 1 ELSE 0 END)        AS null_area_count,
+            SUM(CASE WHEN town IS NULL OR town = '' THEN 1 ELSE 0 END)     AS null_town_count,
+            ROUND(MIN(resale_price), 0)                                     AS price_min,
+            ROUND(MAX(resale_price), 0)                                     AS price_max,
+            ROUND(AVG(resale_price), 0)                                     AS price_mean,
+            COUNT(DISTINCT town)                                            AS town_count,
+            COUNT(DISTINCT flat_type)                                       AS flat_type_count,
+            COUNT(DISTINCT storey_range)                                    AS storey_band_count,
+            MIN(month)                                                      AS date_from,
+            MAX(month)                                                      AS date_to,
+            COUNT(DISTINCT month)                                           AS months_covered
+        FROM transactions
+    """))
+    row = dict(r.mappings().one())
+
+    # SQLite has no PERCENTILE_CONT -- compute from sorted price list
+    prices_r = await db.execute(text("""
+        SELECT resale_price FROM transactions
+        WHERE resale_price IS NOT NULL
+        ORDER BY resale_price
+    """))
+    prices = [float(p["resale_price"]) for p in prices_r.mappings()]
+
+    def pct(lst, p):
+        if not lst:
+            return None
+        k = (len(lst) - 1) * p / 100
+        lo, hi = int(k), min(int(k) + 1, len(lst) - 1)
+        return round(lst[lo] + (lst[hi] - lst[lo]) * (k - lo), 0)
+
+    row["price_p25"]    = pct(prices, 25)
+    row["price_median"] = pct(prices, 50)
+    row["price_p75"]    = pct(prices, 75)
+    row["price_p95"]    = pct(prices, 95)
+
+    total = row["total_records"] or 1
+    row["completeness_pct"] = round(
+        (total - row["null_price_count"] - row["null_area_count"]) / total * 100, 2
+    )
+
+    return row
